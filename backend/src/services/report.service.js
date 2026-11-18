@@ -1,70 +1,67 @@
 
 import { attendanceRepository } from '../repositories/attendance.repository.js';
-import { userRepository } from '../repositories/user.repository.js';
-import { classRepository } from '../repositories/class.repository.js';
 
-import { AppError } from '../utils/app-error.js';
+const csvCell = (value) =>
+  `"${String(value ?? '').replaceAll('"', '""')}"`;
 
-const summarize = (rows) => {
-  const counts = {
-    PRESENT: 0,
-    ABSENT: 0,
-    LATE: 0,
-    EXCUSED: 0
-  };
+const dateOnly = (value) =>
+  new Date(`${value}T00:00:00.000Z`);
 
-  rows.forEach((row) => {
-    counts[row.status]++;
-  });
+export const buildAttendanceCsv = (data) => {
+  const rows = [
+    [
+      'Date',
+      'Class',
+      'Class code',
+      'Student',
+      'Email',
+      'Status',
+      'Remarks',
+      'Marked by',
+      'Latest changed by'
+    ],
 
-  const total = rows.length;
+    ...data.map((attendance) => [
+      attendance.date.toISOString().slice(0, 10),
+      attendance.class.name,
+      attendance.class.code,
+      `${attendance.student.firstName} ${attendance.student.lastName}`,
+      attendance.student.email,
+      attendance.status,
+      attendance.remarks,
+      attendance.markedBy
+        ? `${attendance.markedBy.firstName} ${attendance.markedBy.lastName}`
+        : '',
+      attendance.latestChangedBy
+        ? `${attendance.latestChangedBy.firstName} ${attendance.latestChangedBy.lastName}`
+        : ''
+    ])
+  ];
 
-  return {
-    total,
-    counts,
-    attendancePercentage: total
-      ? Number(
-          (
-            ((counts.PRESENT + counts.LATE) / total) *
-            100
-          ).toFixed(2)
-        )
-      : 0
-  };
+  return rows
+    .map((row) => row.map(csvCell).join(','))
+    .join('\r\n');
 };
 
-export const reportService = {
-  async student(id) {
-    const user = await userRepository.findById(id);
+export const exportAttendanceCsv = async (query) => {
+  const where = {
+    ...(query.classId ? { classId: query.classId } : {}),
+    ...(query.studentId ? { studentId: query.studentId } : {}),
+    ...(query.from || query.to
+      ? {
+          date: {
+            ...(query.from ? { gte: dateOnly(query.from) } : {}),
+            ...(query.to ? { lte: dateOnly(query.to) } : {})
+          }
+        }
+      : {})
+  };
 
-    if (!user || user.role !== 'STUDENT') {
-      throw new AppError(404, 'Student not found');
-    }
+  const { data } = await attendanceRepository.list({
+    where,
+    skip: 0,
+    take: 10000
+  });
 
-    const rows = await attendanceRepository.historyForStudent(id);
-
-    return {
-      student: user,
-      summary: summarize(rows),
-      attendance: rows
-    };
-  },
-
-  async class(id) {
-    const klass = await classRepository.find(id);
-
-    if (!klass) {
-      throw new AppError(404, 'Class not found');
-    }
-
-    const rows = await attendanceRepository.historyForClass(id);
-
-    return {
-      class: klass,
-      summary: summarize(rows),
-      attendance: rows
-    };
-  },
-
-  summarize
+  return buildAttendanceCsv(data);
 };
