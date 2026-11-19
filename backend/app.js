@@ -18,7 +18,28 @@ import {
 const app = express();
 
 // Security middleware
-app.use(helmet());
+// Security middleware
+app.use(
+  helmet({
+    crossOriginOpenerPolicy: {
+      policy: 'same-origin-allow-popups',
+    },
+    contentSecurityPolicy: {
+      directives: {
+        ...helmet.contentSecurityPolicy.getDefaultDirectives(),
+        connectSrc: [
+          "'self'",
+          'https://dev-qiol7n85fv5k1hy3.us.auth0.com',
+        ],
+      },
+    },
+  })
+);
+
+app.use('/docs', (_req, res, next) => {
+  res.removeHeader('Cross-Origin-Opener-Policy');
+  next();
+});
 
 app.use(
   cors({
@@ -60,11 +81,49 @@ app.get('/health', (_req, res) => {
 });
 
 // Swagger API documentation
+
+// Swagger OAuth initialization
+app.get('/docs/oauth-init.js', (_req, res) => {
+  res.type('application/javascript').send(`
+    (() => {
+      const initializeOAuth = () => {
+        if (!window.ui || typeof window.ui.initOAuth !== 'function') {
+          return;
+        }
+
+        window.ui.initOAuth({
+          clientId: ${JSON.stringify(env.auth0ClientId)},
+          appName: 'Attendance Portal',
+          scopes: 'openid profile email',
+          usePkceWithAuthorizationCodeGrant: true,
+        });
+      };
+
+      if (document.readyState === 'complete') {
+        initializeOAuth();
+      } else {
+        window.addEventListener('load', initializeOAuth, {
+          once: true,
+        });
+      }
+    })();
+  `);
+});
+
+// Swagger API documentation
 app.use(
   '/docs',
   swaggerUi.serve,
-  swaggerUi.setup(swaggerSpec)
+  swaggerUi.setup(swaggerSpec, {
+    swaggerOptions: {
+      oauth2RedirectUrl:
+        `http://localhost:${env.port}/docs/oauth2-redirect.html`,
+      persistAuthorization: true,
+    },
+    customJs: '/docs/oauth-init.js',
+  })
 );
+
 
 // API routes
 app.use(env.apiPrefix, routes);
