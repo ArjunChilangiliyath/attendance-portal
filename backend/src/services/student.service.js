@@ -60,11 +60,14 @@ export const studentService = {
         : query.isActive === 'true'
     });
 
-    return {
-      students: result.data,
-      pagination: pageMeta(result.total, page, limit)
-    };
+  return {
+    students: result.data.map(({ classId, ...student }) => student),
+    pagination: pageMeta(result.total, page, limit)
+  };
   },
+
+
+  
 
   get: async (id) => {
     const user = await userRepository.findById(id);
