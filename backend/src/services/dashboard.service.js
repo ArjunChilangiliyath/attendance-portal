@@ -26,7 +26,7 @@ export const dashboardService = {
 
   student: async (studentId) => {
     const result = await dashboardRepository.student(studentId);
-    const counts = result.attendance;
+    const counts = result.counts;
 
     const total = Object.values(counts).reduce(
       (sum, count) => sum + count,
