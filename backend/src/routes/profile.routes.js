@@ -1,6 +1,6 @@
 
 import { Router } from 'express';
-
+import { authenticate } from '../middleware/auth.middleware.js';
 import { validate } from '../middleware/validate.middleware.js';
 import * as profile from '../controllers/profile.controller.js';
 import { profileUpdate } from '../validators/schema.js';
@@ -33,7 +33,7 @@ const router = Router();
  *       401:
  *         description: Unauthorized
  */
-router.get('/', profile.get);
+router.get('/', authenticate, profile.get);
 
 /**
  * @swagger
@@ -73,8 +73,10 @@ router.get('/', profile.get);
  *       401:
  *         description: Unauthorized
  */
+
 router.patch(
   '/',
+  authenticate,
   validate(profileUpdate),
   profile.update
 );

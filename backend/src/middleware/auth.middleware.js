@@ -7,27 +7,25 @@ import { userRepository } from '../repositories/user.repository.js';
 
 // Create JWKS resolver using Auth0's public keys
 const jwks = createRemoteJWKSet(
-  new URL(
-    `https://${env.auth0Domain}/.well-known/jwks.json`
-  )
+  new URL(`https://${env.auth0Domain}/.well-known/jwks.json`)
 );
 
 // Authentication middleware
 export async function authenticate(req, _res, next) {
+  // 1. Extract Authorization header
+  const header = req.headers.authorization || '';
+
+  if (!header.startsWith('Bearer ')) {
+    return next(
+      new AppError(401, 'Bearer access token required')
+    );
+  }
+
+  // 2. Verify Auth0 access token
+  let payload;
+
   try {
-    // Extract Authorization header
-    const header = req.headers.authorization || '';
-
-    // Ensure Bearer token is provided
-    if (!header.startsWith('Bearer ')) {
-      throw new AppError(
-        401,
-        'Bearer access token required'
-      );
-    }
-
-    // Verify JWT access token
-    const { payload } = await jwtVerify(
+    const result = await jwtVerify(
       header.slice(7),
       jwks,
       {
@@ -36,35 +34,41 @@ export async function authenticate(req, _res, next) {
       }
     );
 
-    // Find corresponding user in application database
-    const user = await userRepository.findByAuth0Id(
-      payload.sub
-    );
-
-    // Ensure user exists and account is active
-    if (!user || !user.isActive) {
-      throw new AppError(
-        401,
-        'User account is not active or is not registered'
-      );
-    }
-
-    // Attach authenticated user information to request
-    req.user = user;
-    req.auth = payload;
-
-    return next();
-
-  } catch (error) {
+    payload = result.payload;
+  } catch {
     return next(
-      error instanceof AppError
-        ? error
-        : new AppError(
-            401,
-            'Invalid or expired access token'
-          )
+      new AppError(401, 'Invalid or expired access token')
     );
   }
+
+  // 3. Validate Auth0 user identity
+  if (typeof payload.sub !== 'string' || !payload.sub) {
+    return next(
+      new AppError(401, 'Invalid user identity in access token')
+    );
+  }
+
+  // 4. Find corresponding user in application database
+  let user;
+
+  try {
+    user = await userRepository.findByAuth0Id(payload.sub);
+  } catch (error) {
+    return next(error);
+  }
+
+  // 5. Ensure user exists and account is active
+  if (!user || !user.isActive) {
+    return next(
+      new AppError(401, 'User account is not active or is not registered')
+    );
+  }
+
+  // 6. Attach authenticated user information to request
+  req.user = user;
+  req.auth = payload;
+
+  return next();
 }
 
 // Role-based authorization middleware
