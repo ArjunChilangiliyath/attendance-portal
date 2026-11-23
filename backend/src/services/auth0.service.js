@@ -8,10 +8,12 @@ import { AppError } from '../utils/app-error.js';
 let cachedToken = null;
 let expiresAt = 0;
 
+// Obtain and cache Auth0 Management API access token
 async function managementToken() {
   if (
     !env.auth0M2mClientId ||
-    !env.auth0M2mClientSecret
+    !env.auth0M2mClientSecret ||
+    !env.auth0Domain
   ) {
     throw new AppError(
       500,
@@ -19,6 +21,7 @@ async function managementToken() {
     );
   }
 
+  // Return cached token if it is still valid
   if (cachedToken && Date.now() < expiresAt - 60000) {
     return cachedToken;
   }
@@ -30,7 +33,7 @@ async function managementToken() {
         client_id: env.auth0M2mClientId,
         client_secret: env.auth0M2mClientSecret,
         audience: `https://${env.auth0Domain}/api/v2/`,
-        grant_type: 'client_credentials'
+        grant_type: 'client_credentials',
       }
     );
 
@@ -38,7 +41,14 @@ async function managementToken() {
     expiresAt = Date.now() + data.expires_in * 1000;
 
     return cachedToken;
+
   } catch (error) {
+    console.error('Auth0 Management Token Error:', {
+      status: error.response?.status,
+      data: error.response?.data,
+      message: error.message,
+    });
+
     throw new AppError(
       502,
       'Unable to obtain Auth0 Management API access token'
@@ -46,10 +56,11 @@ async function managementToken() {
   }
 }
 
+// Create a student account in Auth0
 export async function createAuth0Student({
   email,
   firstName,
-  lastName
+  lastName,
 }) {
   const token = await managementToken();
 
@@ -68,25 +79,27 @@ export async function createAuth0Student({
         family_name: lastName,
         email_verified: false,
         app_metadata: {
-          role: 'STUDENT'
-        }
+          role: 'STUDENT',
+        },
       },
       {
         headers: {
-          Authorization: `Bearer ${token}`
-        }
+          Authorization: `Bearer ${token}`,
+        },
       }
     );
 
+    // Trigger password reset email
     try {
       await axios.post(
         `https://${env.auth0Domain}/dbconnections/change_password`,
         {
           client_id: env.auth0ClientId,
           email,
-          connection: env.auth0DbConnection
+          connection: env.auth0DbConnection,
         }
       );
+
     } catch (error) {
       console.warn(
         'Auth0 account created, but password email could not be triggered:',
@@ -95,7 +108,14 @@ export async function createAuth0Student({
     }
 
     return data;
+
   } catch (error) {
+    console.error('Auth0 Student Creation Error:', {
+      status: error.response?.status,
+      data: error.response?.data,
+      message: error.message,
+    });
+
     throw new AppError(
       error.response?.status === 409 ? 409 : 502,
       error.response?.data?.message ||
